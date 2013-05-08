@@ -7,7 +7,7 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#include <wand/MagickWand.h>
+//#include <wand/MagickWand.h>
 
 #define MAX_IMAGE_SIZE 20971520  /* 20 MB */
 
@@ -96,6 +96,7 @@ ngx_http_gif_magick_handler  ( ngx_http_request_t *request ) {
   ngx_http_gif_magick_loc_conf_t  *gif_magick_conf;
   ngx_buf_t                       *buffer;
   ngx_chain_t                     out_chain;
+  //MagickWand                      *magick_wand;
 
   // Load gif_magick config
   gif_magick_conf = ngx_http_get_module_loc_conf( request, ngx_http_gif_magick_module );
