@@ -12,8 +12,11 @@ typedef struct {
   ngx_uint_t  height;
 } ngx_http_gif_magick_loc_conf_t;
 
-static void * ngx_http_gif_magick_loc_conf( ngx_conf_t *cf ); 
-static char * ngx_http_gif_magick( ngx_conf_t *cf, ngx_command_t *cmd, void *conf );
+
+static char *     ngx_http_gif_magick ( ngx_conf_t *cf, ngx_command_t *cmd, void *conf );
+static void *     ngx_http_gif_magick_create_loc_conf ( ngx_conf_t *cf ); 
+static char *     ngx_http_gif_magick_merge_loc_conf ( ngx_conf_t *cf, void *parent, void *child );
+static ngx_int_t  ngx_http_gif_magick_handler ( ngx_http_request_t *request );
 
 static ngx_command_t ngx_http_gif_magick_commands[] = {
   {
@@ -34,22 +37,9 @@ static ngx_http_module_t ngx_http_gif_magick_module_ctx = {
   NULL, // initializing the main conf ( override the defaults with what's in nginx.conf )
   NULL, // creating the server conf
   NULL, // merging it with the main conf
-  ngx_http_gif_magick_loc_conf, // creating the location conf
-  NULL, // merging it with the server conf
+  ngx_http_gif_magick_create_loc_conf, // creating the location conf
+  ngx_http_gif_magick_merge_loc_conf, // merging it with the server conf
 };
-
-static void * ngx_http_gif_magick_loc_conf( ngx_conf_t *cf ) {
-  ngx_http_gif_magick_loc_conf_t *conf;
-  
-  conf = ngx_pcalloc( cf->pool, sizeof( ngx_http_gif_magick_loc_conf_t ) );
-  if ( conf == NULL ) {
-    return NGX_CONF_ERROR;
-  }
-
-  conf->width = NGX_CONF_UNSET_UINT;
-  conf->height = NGX_CONF_UNSET_UINT;
-  return conf;
-}
 
 ngx_module_t ngx_http_gif_magick_module = {
   NGX_MODULE_V1,
@@ -64,10 +54,41 @@ ngx_module_t ngx_http_gif_magick_module = {
   NULL, // exit process
   NULL, // exit master
   NGX_MODULE_V1_PADDING
+};
+
+static char *
+ngx_http_gif_magick( ngx_conf_t *cf, ngx_command_t *cmd, void *conf ) {
+
+  return NGX_CONF_OK;
 }
 
-static char * ngx_http_gif_magick( ngx_conf_t *cf, ngx_command_t *cmd, void *conf ) {
+static void *
+ngx_http_gif_magick_create_loc_conf( ngx_conf_t *cf ) {
+  ngx_http_gif_magick_loc_conf_t *conf;
+  
+  conf = ngx_pcalloc( cf->pool, sizeof( ngx_http_gif_magick_loc_conf_t ) );
+  if ( conf == NULL ) {
+    return NGX_CONF_ERROR;
+  }
 
-  return NGX_OK;
+  conf->width = NGX_CONF_UNSET_UINT;
+  conf->height = NGX_CONF_UNSET_UINT;
+  return conf;
 }
 
+static char *
+ngx_http_gif_magick_merge_loc_conf( ngx_conf_t *cf, void *parent, void *child ) {
+  ngx_http_gif_magick_loc_conf_t *prev = parent;
+  ngx_http_gif_magick_loc_conf_t *conf = child;
+
+  ngx_conf_merge_uint_value( conf->width, prev->width, 400 );
+  ngx_conf_merge_uint_value( conf->height, prev->height, 1024 );
+
+  return NGX_CONF_OK;
+}
+
+static ngx_int_t
+ngx_http_gif_magick_handler  ( ngx_http_request_t *request ) {
+  ngx_http_gif_magick_loc_conf_t *gif_magick_conf;
+  gif_magick_conf = ngx_http_get_module_loc_conf( request, ngx_http_gif_magick_module );
+}
