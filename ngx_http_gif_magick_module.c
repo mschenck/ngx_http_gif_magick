@@ -9,7 +9,7 @@
 
 #include <wand/MagickWand.h>
 
-#define MAX_IMAGE_SIZE 20971520  /* 20 MB */
+#define MAX_IMAGE_SIZE 20971520  /* 20 MB TODO:configurable */
 
 typedef struct {
   ngx_uint_t  width;
@@ -106,7 +106,8 @@ ngx_http_gif_magick( ngx_conf_t *cf, ngx_command_t *cmd, void *conf )
 static ngx_int_t
 ngx_http_gif_magick_header_filter( ngx_http_request_t *request )
 {
-  return NGX_OK;
+  // TODO: add logic to verify the received body and headers
+  return ngx_http_next_header_filter( request );
 }
 
 // NOTE: The creation/clean-op of a MagickWand per run is intentional (and fairly cheap, all-in-all)
@@ -153,7 +154,9 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
   MagickWandGenesis();
   magick_wand = NewMagickWand();
 
-  if ( MagickReadImageBlob(magick_wand, gif_data, gif_size) == MagickFalse ) {
+  // Load original image into Wand
+  gif_size = sizeof( /*TODO:GIF*/ );
+  if ( MagickReadImageBlob( magick_wand, /*TODO:GIF*/, gif_size ) == MagickFalse ) {
     ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Magick fed an invalid image blob");
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
@@ -161,19 +164,17 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
   // Resize all frames
   MagickCoalesceImages( magick_wand );
 
+  // Resize current 'image' (frame)
   MagickSetFirstIterator( magick_wand );
   do {
-    // Resize current 'image' (frame)
     MagickAdaptiveResizeImage( magick_wand, gif_magick_conf->width, gif_magick_conf->height );
+  } while ( MagickNextImage( magick_wand ) != MagickFalse );
 
-    // Unsharpen for improved appearance
-    //MagickUnsharpMaskImage( magick_wand, 0.5, 0.5, 1.0, 0.1 );
-  } while ( MagickNextImage(magick_wand) != MagickFalse );
 
   MagickStripImage( magick_wand );
   MagickEqualizeImage( magick_wand );
 
-  // Fix the optimizations we broke in coalesce
+  // Fix any optimizations we broke in coalesce
   MagickOptimizeImageLayers( magick_wand );
 
   // Magick time over ... cleaning up
