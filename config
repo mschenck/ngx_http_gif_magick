@@ -9,3 +9,5 @@ MAGICK_INCLUDE="${MAGICK_DIR}/include/ImageMagick-6"
 PKG_CONFIG_PATH="${MAGICK_LIBDIR}/pkgconfig"
 
 CFLAGS="${CFLAGS} -I${MAGICK_INCLUDE} -L${MAGICK_LIBDIR} `PKG_CONFIG_PATH=${PKG_CONFIG_PATH} pkg-config --cflags --libs MagickWand`"
+
+CORE_LIBS="${CORE_LIBS} $CFLAGS"

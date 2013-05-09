@@ -115,11 +115,11 @@ static ngx_int_t
 ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_chain )
 {
   ngx_http_gif_magick_loc_conf_t  *gif_magick_conf;
-  ngx_buf_t                       *buffer;
   ngx_chain_t                     *chain_link;
   short                           last_found = 0;
   MagickWand                      *magick_wand;
-  ssize_t                         gif_size;
+  void                            *gif_data, *gif_pos;
+  ssize_t                         chunk_size, gif_size;
 
   // Return quickly if not needed
   if ( request->header_only || in_chain == NULL ) {
@@ -134,29 +134,30 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
   ngx_http_send_header( request );
 
   // Body
-  buffer = ngx_pcalloc( request->pool, sizeof( ngx_buf_t ) );
-  if ( buffer == NULL ) {
+  gif_data = ngx_pcalloc( request->pool, MAX_IMAGE_SIZE );
+  if ( gif_data == NULL ) {
     ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to allocate response buffer.");
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
-  chain_link = in_chain;
-  for ( ; ; ) {
-    if ( chain_link->buf->last_buf ) last_found = 1;
-    if ( chain_link->next == NULL ) break;
-    chain_link = chain_link->next;
+  gif_pos = gif_data;
+  gif_size = 0;
+  for ( chain_link = in_chain; chain_link->next == NULL ; chain_link = chain_link->next) {
+    chunk_size = chain_link->buf->last - chain_link->buf->pos;
+    gif_pos = ngx_cpymem(gif_pos, chain_link->buf->pos, chunk_size );
+    gif_size += chunk_size;
+    if ( chain_link->buf->last_buf ) last_found = 1; // final buffer found
   }
 
   // Move on to the next filter if there is no final buffer
-  if ( !last_found ) return ngx_http_next_body_filter( request, in_chain );
+  if ( !last_found || gif_size == 0 ) return ngx_http_next_body_filter( request, in_chain );
 
   // Initialize this Wand
   MagickWandGenesis();
   magick_wand = NewMagickWand();
 
   // Load original image into Wand
-  gif_size = sizeof( /*TODO:GIF*/ );
-  if ( MagickReadImageBlob( magick_wand, /*TODO:GIF*/, gif_size ) == MagickFalse ) {
+  if ( MagickReadImageBlob( magick_wand, gif_data, gif_size ) == MagickFalse ) {
     ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Magick fed an invalid image blob");
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
