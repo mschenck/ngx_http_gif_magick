@@ -156,6 +156,70 @@ ngx_http_gif_magick_header_filter( ngx_http_request_t *request )
 
   return NGX_OK;
 }
+// NOTE: The creation/clean-op of a MagickWand per run is intentional (and fairly cheap, all-in-all)
+static ngx_int_t
+ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_chain )
+{
+  ngx_http_gif_magick_ctx_t       *ctx;
+  MagickWand                      *magick_wand;
+  MagickSizeType                  magick_length;
+
+  ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
+  if ( ctx == NULL ) {
+    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to retrieve ctx for resizing" );
+    return NGX_ERROR;
+  }
+
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "INITIALIZING WAND.");
+
+
+  // Initialize this Wand
+  MagickWandGenesis();
+  magick_wand = NewMagickWand();
+
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "LOADING IMAGE INTO WAND.");
+
+  // Load original image into Wand
+  if ( MagickReadImageBlob( magick_wand, (void*)ctx->gif_data, ctx->gif_size) == MagickFalse ) {
+    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Magick fed an invalid image blob");
+    return NGX_ERROR;
+  }
+
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "RESIZE LOADED IMAGE IN WAND.");
+
+  // Resize all frames
+  MagickCoalesceImages( magick_wand );
+
+  // Resize current 'image' (frame)
+  MagickSetFirstIterator( magick_wand );
+  do {
+    MagickAdaptiveResizeImage( magick_wand, ctx->width, ctx->height );
+  } while ( MagickNextImage( magick_wand ) != MagickFalse );
+
+  MagickStripImage( magick_wand );
+  MagickEqualizeImage( magick_wand );
+
+  // Fix any optimizations we broke in coalesce
+  MagickOptimizeImageLayers( magick_wand );
+
+  // Update image content and size
+  MagickGetImageLength( magick_wand, &magick_length );
+  ctx->gif_size = (size_t)magick_length;
+  ctx->gif_data = MagickGetImagesBlob( magick_wand, &ctx->gif_size );
+
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "UPDATING IMAGE SIZE [ %uz ].", ctx->gif_size);
+
+
+  // Magick time over ... cleaning up
+  magick_wand = DestroyMagickWand( magick_wand );
+  MagickWandTerminus();
+
+  return NGX_OK;
+}
 
 static ngx_int_t
 ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_chain )
@@ -226,70 +290,6 @@ ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_cha
 }
 
 static ngx_int_t
-ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_chain )
-{
-  ngx_http_gif_magick_ctx_t       *ctx;
-  MagickWand                      *magick_wand;
-  MagickSizeType                  magick_length;
-
-  ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
-  if ( ctx == NULL ) {
-    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to retrieve ctx for resizing" );
-    return NGX_ERROR;
-  }
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "INITIALIZING WAND.");
-
-
-  // Initialize this Wand
-  MagickWandGenesis();
-  magick_wand = NewMagickWand();
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "LOADING IMAGE INTO WAND.");
-
-  // Load original image into Wand
-  if ( MagickReadImageBlob( magick_wand, (void*)ctx->gif_data, ctx->gif_size) == MagickFalse ) {
-    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Magick fed an invalid image blob");
-    return NGX_ERROR;
-  }
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "RESIZE LOADED IMAGE IN WAND.");
-
-  // Resize all frames
-  MagickCoalesceImages( magick_wand );
-
-  // Resize current 'image' (frame)
-  MagickSetFirstIterator( magick_wand );
-  do {
-    MagickAdaptiveResizeImage( magick_wand, ctx->width, ctx->height );
-  } while ( MagickNextImage( magick_wand ) != MagickFalse );
-
-  MagickStripImage( magick_wand );
-  MagickEqualizeImage( magick_wand );
-
-  // Fix any optimizations we broke in coalesce
-  MagickOptimizeImageLayers( magick_wand );
-
-  // Update image content and size
-  MagickGetImageLength( magick_wand, &magick_length );
-  ctx->gif_size = (size_t)magick_length;
-  ctx->gif_data = MagickGetImagesBlob( magick_wand, &ctx->gif_size );
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "UPDATING IMAGE SIZE [ %uz ].", ctx->gif_size);
-
-
-  // Magick time over ... cleaning up
-  magick_wand = DestroyMagickWand( magick_wand );
-  MagickWandTerminus();
-
-  return NGX_OK;
-}
-
-static ngx_int_t
 ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_chain )
 {
   ngx_http_gif_magick_ctx_t   *ctx;
@@ -336,7 +336,6 @@ ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   return ngx_http_next_body_filter( request, &out_chain );
 }
 
-// NOTE: The creation/clean-op of a MagickWand per run is intentional (and fairly cheap, all-in-all)
 static ngx_int_t
 ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_chain )
 {
