@@ -9,8 +9,12 @@
 
 #include <wand/MagickWand.h>
 
-#define GIF_MAGICK_ENABLED                (ngx_flag_t)1
-#define GIF_MAGICK_DISABLED               (ngx_flag_t)0
+#define GIF_MAGICK_DISABLED     0
+#define GIF_MAGICK_ENABLED      1
+#define GIF_MAGICK_READ         2
+#define GIF_MAGICK_RESIZE       3
+#define GIF_MAGICK_SEND         4
+
 #define GIF_MAGICK_DEFAULT_BUFFER_SIZE    (size_t)20971520  /* 20 MB TODO:configurable */
 
 typedef struct {
@@ -140,16 +144,38 @@ ngx_http_gif_magick_merge_loc_conf( ngx_conf_t *cf, void *parent, void *child )
 static ngx_int_t
 ngx_http_gif_magick_header_filter( ngx_http_request_t *request )
 {
-  //ngx_http_gif_magick_ctx_t   *ctx;
-  //ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
-
-  // TODO: add logic to verify the received body and headers
+  ngx_http_gif_magick_ctx_t       *ctx;
+  ngx_http_gif_magick_loc_conf_t  *gif_magick_conf;
 
       //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting the header_filter.");
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIF_MAGICK header_filter.");
 
+  // Instantiate context
+  ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
+  if ( ctx == NULL ) {
+    ctx = ngx_pcalloc( request->pool, sizeof( ngx_http_gif_magick_ctx_t ) );
+    if ( ctx == NULL ) {
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to allocate new ctx" );
+      return NGX_ERROR;
+    }
+    ngx_http_set_ctx( request, ctx, ngx_http_gif_magick_module );
+  }
+
+  gif_magick_conf = ngx_http_get_module_loc_conf( request, ngx_http_gif_magick_module );
+  if ( gif_magick_conf->enabled == GIF_MAGICK_DISABLED ) {
+    ctx->status = GIF_MAGICK_DISABLED;
+    return ngx_http_next_header_filter( request );
+  }
+ 
+  ctx->status       = GIF_MAGICK_ENABLED; 
+  ctx->buffer_size  = gif_magick_conf->buffer_size;
+  ctx->width        = gif_magick_conf->width;
+  ctx->height       = gif_magick_conf->height;
+
+  // TODO: add logic to verify the received body and headers
   return NGX_OK;
 }
+
 // NOTE: The creation/clean-op of a MagickWand per run is intentional (and fairly cheap, all-in-all)
 static ngx_int_t
 ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_chain )
@@ -331,83 +357,67 @@ static ngx_int_t
 ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_chain )
 {
   ngx_http_gif_magick_ctx_t       *ctx;
-  ngx_http_gif_magick_loc_conf_t  *gif_magick_conf;
+  ngx_int_t                       result;
 
       //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting the body_filter.");
-
-  // Fetch config
-  gif_magick_conf = ngx_http_get_module_loc_conf( request, ngx_http_gif_magick_module );
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIF MAGICK body_filter.");
 
   // Return quickly if not needed
-  if ( request->header_only ) {
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "NEXT FILTER (header_only)" );
-
-    //return ngx_http_next_body_filter( request, in_chain );
-  }
-
   if ( in_chain == NULL ) {
-
       //FIXME
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "NEXT FILTER (in_chain NULL)" );
-
     return ngx_http_next_body_filter( request, in_chain );
   }
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "ENABLED? %uz", gif_magick_conf->enabled );
-
-  if ( gif_magick_conf->enabled == GIF_MAGICK_DISABLED ) return ngx_http_next_body_filter( request, in_chain );
-
-  // Instantiate context
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
-  if ( ctx == NULL ) {
-    ctx = ngx_pcalloc( request->pool, sizeof( ngx_http_gif_magick_ctx_t ) );
-    if ( ctx == NULL ) {
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to allocate new ctx" );
-      return NGX_ERROR;
-    }
-    ngx_http_set_ctx( request, ctx, ngx_http_gif_magick_module );
-  }
-  
-  ctx->buffer_size  = gif_magick_conf->buffer_size;
-  ctx->width        = gif_magick_conf->width;
-  ctx->height       = gif_magick_conf->height;
+  if ( ctx == NULL ) ngx_http_next_body_filter( request, in_chain );
+
+  switch( ctx->status ) {
+
+    case GIF_MAGICK_ENABLED:
+
+        ctx->status = GIF_MAGICK_READ;
+
+    case GIF_MAGICK_READ:
 
       //FIXME
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to read image.");
 
-  // Read image into ctx
-    switch( ngx_http_gif_magick_read_image( request, in_chain ) ) {
-      case NGX_ERROR: {
+      result = ngx_http_gif_magick_read_image( request, in_chain );
+      if ( result == NGX_ERROR ) {
         ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to read image file.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-      case NGX_AGAIN: {
-        //FIXME
-        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "NGX_AGAIN: 'chain->last' NOT FOUND");
-        break;
-      }
-      case NGX_OK: {
-        //FIXME
-        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "'NGX_OK' FROM 'ngx_http_gif_magick_read_image'");
-        break;
-      }
-    }
+
+    case GIF_MAGICK_RESIZE:
 
       //FIXME
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to resize image.");
 
-  // Resize image (from ctx)
-  ngx_http_gif_magick_resize_image( request, in_chain );
+      result = ngx_http_gif_magick_resize_image( request, in_chain );
+      if ( result == NGX_ERROR ) {
+        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to read image file.");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+      }
+      ctx->status = GIF_MAGICK_SEND;
+
+    case GIF_MAGICK_SEND:
 
       //FIXME
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to send image.");
 
-  // Send resized image (from ctx)
-  return ngx_http_gif_magick_send_image( request, in_chain );
+      return ngx_http_gif_magick_send_image( request, in_chain );
+   
+    default:
+
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "CONTEXT STATUS 'default' REACHED.");
+
+      result = ngx_http_next_body_filter( request, in_chain );
+      if ( result == NGX_OK ) result = NGX_ERROR; 
+
+      return result; 
+  }
 }
 
 static ngx_int_t
