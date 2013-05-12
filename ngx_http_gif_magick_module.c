@@ -23,8 +23,8 @@
 typedef struct {
   ngx_flag_t    enabled;        // (default: DISABLED) enable plugin on a given location
   size_t        buffer_size;    // This determines the large image that will be processed
-  size_t        width;          // (default: 400) Target resize width
-  size_t        height;         // (default: 1024) Target resize height (a sloppy safety net, retains aspect ratio)
+  ngx_int_t     width;          // Target resize width
+  ngx_int_t     height;         // Target resize height (a sloppy safety net, retains aspect ratio)
 } ngx_http_gif_magick_loc_conf_t;
 
 typedef struct {
@@ -32,8 +32,8 @@ typedef struct {
   u_char        *gif_last;
   size_t        gif_size;
   size_t        buffer_size;
-  size_t        width;          // (default: 400) Target resize width
-  size_t        height;         // (default: 1024) Target resize height (a sloppy safety net, retains aspect ratio)
+  ngx_int_t     width;          // Target resize width
+  ngx_int_t     height;         // Target resize height (a sloppy safety net, retains aspect ratio)
   ngx_uint_t    status;         // Processing status
 } ngx_http_gif_magick_ctx_t;
 
@@ -123,8 +123,8 @@ ngx_http_gif_magick_create_loc_conf( ngx_conf_t *cf )
   }
 
   conf->enabled      = NGX_CONF_UNSET;
-  conf->width        = NGX_CONF_UNSET_SIZE;
-  conf->height       = NGX_CONF_UNSET_SIZE;
+  conf->width        = NGX_CONF_UNSET;
+  conf->height       = NGX_CONF_UNSET;
   conf->buffer_size  = NGX_CONF_UNSET_SIZE;
 
   return conf;
@@ -138,11 +138,10 @@ ngx_http_gif_magick_merge_loc_conf( ngx_conf_t *cf, void *parent, void *child )
 
   ngx_conf_merge_value( conf->enabled, prev->enabled, GIF_MAGICK_DISABLED );
   ngx_conf_merge_size_value( conf->buffer_size, prev->buffer_size, GIF_MAGICK_DEFAULT_BUFFER_SIZE );
-  ngx_conf_merge_size_value( conf->width, prev->width, GIF_MAGICK_DIMENSION_UNSET);
-  ngx_conf_merge_size_value( conf->height, prev->height, GIF_MAGICK_DIMENSION_UNSET );
+  ngx_conf_merge_value( conf->width, prev->width, GIF_MAGICK_DIMENSION_UNSET);
+  ngx_conf_merge_value( conf->height, prev->height, GIF_MAGICK_DIMENSION_UNSET );
 
   if ( conf->width == GIF_MAGICK_DIMENSION_UNSET && conf->height == GIF_MAGICK_DIMENSION_UNSET ) {
-    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "gif_magick configuration error, must set either width or height.");
     return NGX_CONF_ERROR;
   }
 
