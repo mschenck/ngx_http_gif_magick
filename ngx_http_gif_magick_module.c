@@ -16,8 +16,6 @@
 #define GIF_MAGICK_SEND         4
 #define GIF_MAGICK_DONE         5
 
-#define GIF_MAGICK_DIMENSION_UNSET        -1
-
 #define GIF_MAGICK_DEFAULT_BUFFER_SIZE    (size_t)20971520  /* 20 MB TODO:configurable */
 
 typedef struct {
@@ -138,12 +136,8 @@ ngx_http_gif_magick_merge_loc_conf( ngx_conf_t *cf, void *parent, void *child )
 
   ngx_conf_merge_value( conf->enabled, prev->enabled, GIF_MAGICK_DISABLED );
   ngx_conf_merge_size_value( conf->buffer_size, prev->buffer_size, GIF_MAGICK_DEFAULT_BUFFER_SIZE );
-  ngx_conf_merge_value( conf->width, prev->width, GIF_MAGICK_DIMENSION_UNSET);
-  ngx_conf_merge_value( conf->height, prev->height, GIF_MAGICK_DIMENSION_UNSET );
-
-  if ( conf->width == GIF_MAGICK_DIMENSION_UNSET && conf->height == GIF_MAGICK_DIMENSION_UNSET ) {
-    return NGX_CONF_ERROR;
-  }
+  ngx_conf_merge_value( conf->width, prev->width, NGX_CONF_UNSET);
+  ngx_conf_merge_value( conf->height, prev->height, NGX_CONF_UNSET );
 
   return NGX_CONF_OK;
 }
@@ -154,13 +148,18 @@ ngx_http_gif_magick_header_filter( ngx_http_request_t *request )
   ngx_http_gif_magick_ctx_t       *ctx;
   ngx_http_gif_magick_loc_conf_t  *gif_magick_conf;
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIF_MAGICK header_filter.");
+  ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "GIF_MAGICK header_filter.");
 
-  // Instantiate context
+  // Return quickly if not needed
+
+  if ( request->headers_out.status == NGX_HTTP_NOT_MODIFIED )                     // Not Modified
+    return ngx_http_next_header_filter( request );
+
+
+
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
   if ( ctx == NULL ) {
-    ctx = ngx_pcalloc( request->pool, sizeof( ngx_http_gif_magick_ctx_t ) );
+    ctx = ngx_pcalloc( request->pool, sizeof( ngx_http_gif_magick_ctx_t ) );      // Instantiate context
     if ( ctx == NULL ) {
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to allocate new ctx" );
       return NGX_ERROR;
@@ -169,11 +168,15 @@ ngx_http_gif_magick_header_filter( ngx_http_request_t *request )
   }
 
   gif_magick_conf = ngx_http_get_module_loc_conf( request, ngx_http_gif_magick_module );
-  if ( gif_magick_conf->enabled == GIF_MAGICK_DISABLED ) {
+  if ( gif_magick_conf->enabled == GIF_MAGICK_DISABLED ) {                        // gif_magick disabled
     ctx->status = GIF_MAGICK_DISABLED;
     return ngx_http_next_header_filter( request );
   }
+
+  // Prepare for resizing
  
+  ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick preparing for resizing.");
+
   ctx->status       = GIF_MAGICK_ENABLED; 
   ctx->buffer_size  = gif_magick_conf->buffer_size;
   ctx->width        = gif_magick_conf->width;
@@ -197,16 +200,10 @@ ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_c
     return NGX_ERROR;
   }
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "INITIALIZING WAND.");
-
-
   // Initialize this Wand
+  ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick initializing wand and loading image data.");
   MagickWandGenesis();
   magick_wand = NewMagickWand();
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "LOADING IMAGE INTO WAND.");
 
   // Load original image into Wand
   if ( MagickReadImageBlob( magick_wand, (void*)ctx->gif_data, ctx->buffer_size) == MagickFalse ) {
@@ -214,13 +211,9 @@ ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_c
     return NGX_ERROR;
   }
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "RESIZE LOADED IMAGE IN WAND.");
-
   // Resize all frames
   MagickCoalesceImages( magick_wand );
 
-  // Resize current 'image' (frame)
   MagickSetFirstIterator( magick_wand );
   do {
     MagickAdaptiveResizeImage( magick_wand, ctx->width, ctx->height );
@@ -229,17 +222,14 @@ ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_c
   MagickStripImage( magick_wand );
   MagickEqualizeImage( magick_wand );
 
-  // Fix any optimizations we broke in coalesce
-  MagickOptimizeImageLayers( magick_wand );
+  MagickOptimizeImageLayers( magick_wand );           // Fix any optimizations we broke in coalesce
 
   // Update image content and size
   MagickGetImageLength( magick_wand, &magick_length );
   ctx->gif_size = (size_t)magick_length;
   ctx->gif_data = MagickGetImagesBlob( magick_wand, &ctx->gif_size );
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "UPDATING IMAGE SIZE [ %uz ].", ctx->gif_size);
-
+  ngx_log_debug1( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magic updated context image size to %uz B from wand.", ctx->gif_size);
 
   // Magick time over ... cleaning up
   magick_wand = DestroyMagickWand( magick_wand );
@@ -259,11 +249,9 @@ ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_cha
 
   // Retrieve (or allocate if missing) context
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Allocating %uzB of image data" , ctx->buffer_size );
-
+      
   if ( ctx->gif_data == NULL ) {
+    ngx_log_debug1( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick allocating %uz B for image data" , ctx->buffer_size );
     ctx->gif_data = ngx_palloc( request->pool, ctx->buffer_size );
     if ( ctx->gif_data == NULL ) {
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to allocate response buffer.");
@@ -279,15 +267,10 @@ ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_cha
     buffer      = chain_link->buf;
     chunk_size  = buffer->last - buffer->pos;
 
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "buffered %uzB of image data" , chunk_size );
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "buffered %uzB of image data" , chunk_size );
-
     remaining = ctx->gif_data + ctx->buffer_size - gif_pos;
     if ( remaining < chunk_size ) chunk_size = remaining;
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "REMAINING:%uz CHUNK_SIZE:%uz" , remaining, chunk_size );
+      
+    ngx_log_debug2( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick context image buffer: Remaining: %uz B - chunk size: %uz B" , remaining, chunk_size );
 
     gif_pos         = ngx_cpymem( gif_pos, buffer->pos, chunk_size );
     buffer->pos    += chunk_size;
@@ -295,10 +278,7 @@ ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_cha
 
     if ( buffer->last_buf ) {
       ctx->gif_last = gif_pos;
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "FINISHED READ (%uzB) OK.", ctx->gif_size );
-
+      ngx_log_debug1( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick read image ( %uz B ) successful.", ctx->gif_size ); 
       return NGX_OK;
     }
 
@@ -307,10 +287,7 @@ ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   ctx->gif_last = gif_pos;
   request->connection->buffered |= 0x08;
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, " -> NGX_AGAIN <- " );
-
-  return NGX_OK;
+  return NGX_AGAIN;
 }
 
 static ngx_int_t
@@ -337,12 +314,10 @@ ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   out_chain.buf = buffer;
   out_chain.next = NULL;
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "the sizeof gif_data is (%d)", ctx->gif_size );
-
   // Set response headers
-
   request->headers_out.content_length_n = ctx->gif_size;
+  ngx_log_debug1( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick response content-lenght: %d", ctx->gif_size );
+
   if ( request->headers_out.content_length ) request->headers_out.content_length->hash = 0;
   request->headers_out.content_length = NULL;
 
@@ -354,6 +329,8 @@ ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   result = ngx_http_next_header_filter( request );
   if ( result == NGX_ERROR || request->header_only ) return NGX_ERROR;
 
+  ctx->status = GIF_MAGICK_DONE;
+
   return ngx_http_next_body_filter( request, &out_chain );
 }
 
@@ -363,44 +340,39 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
   ngx_http_gif_magick_ctx_t       *ctx;
   ngx_int_t                       result;
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIF MAGICK body_filter.");
+  ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "GIF_MAGICK body_filter.");
 
   // Return quickly if not needed
-  if ( in_chain == NULL ) {
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "NEXT FILTER (in_chain NULL)" );
-    return ngx_http_next_body_filter( request, in_chain );
-  }
+  if ( in_chain == NULL ) return ngx_http_next_body_filter( request, in_chain );
 
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
   if ( ctx == NULL ) ngx_http_next_body_filter( request, in_chain );
 
   switch( ctx->status ) {
 
+    case GIF_MAGICK_DISABLED:
+
+      return ngx_http_next_body_filter( request, in_chain );
+
     case GIF_MAGICK_ENABLED:
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to read image.");
-
-        ctx->status = GIF_MAGICK_READ;
+      ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick starting to read image.");
+      ctx->status = GIF_MAGICK_READ;
 
     case GIF_MAGICK_READ:
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "reading image.");
-
+      ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick reading image.");
       result = ngx_http_gif_magick_read_image( request, in_chain );
       if ( result == NGX_ERROR ) {
         ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to read image file.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
 
+      if ( result == NGX_ERROR ) ctx->status = GIF_MAGICK_RESIZE;
+
     case GIF_MAGICK_RESIZE:
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to resize image.");
-
+      ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick resizing.");
       result = ngx_http_gif_magick_resize_image( request, in_chain );
       if ( result == NGX_ERROR ) {
         ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to resize image file.");
@@ -410,21 +382,12 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
 
     case GIF_MAGICK_SEND:
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to send image.");
-      if ( result == NGX_ERROR ) {
-        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to send image file.");
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-      }
-      ctx->status = GIF_MAGICK_DONE;
-
+      ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick sending response.");
       return ngx_http_gif_magick_send_image( request, in_chain );
 
     case GIF_MAGICK_DONE:
 
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIF MAGICK DONE.");
-
+      ngx_log_debug0( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick complete.");
       return ngx_http_next_body_filter( request, in_chain );
    
     default:
@@ -434,9 +397,10 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
 
       result = ngx_http_next_body_filter( request, in_chain );
       if ( result == NGX_OK ) result = NGX_ERROR; 
-
       return result; 
   }
+
+  return ngx_http_next_body_filter( request, in_chain );
 }
 
 static ngx_int_t
