@@ -14,6 +14,7 @@
 #define GIF_MAGICK_READ         2
 #define GIF_MAGICK_RESIZE       3
 #define GIF_MAGICK_SEND         4
+#define GIF_MAGICK_DONE         5
 
 #define GIF_MAGICK_DEFAULT_BUFFER_SIZE    (size_t)20971520  /* 20 MB TODO:configurable */
 
@@ -312,43 +313,40 @@ ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   ngx_http_gif_magick_ctx_t   *ctx;
   ngx_buf_t                   *buffer;
   ngx_chain_t                 out_chain;
+  ngx_int_t                   result;
   ngx_str_t                   content_type = ngx_string("image/gif"); 
 
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
+  if ( ctx == NULL ) ngx_http_next_body_filter( request, in_chain );
 
   // Set response body
   buffer = ngx_pcalloc( request->pool, sizeof( ngx_buf_t ) );
   if ( buffer == NULL ) return NGX_ERROR;
 
-  buffer->pos = ctx->gif_data;
-  buffer->last = ctx->gif_last;
-  buffer->memory = 1;
-  buffer->last_buf = 1;
+  buffer->pos       = ctx->gif_data;
+  buffer->last      = ctx->gif_data + ctx->gif_size;
+  buffer->memory    = 1;
+  buffer->last_buf  = 1;
 
-
-      //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "the sizeof gif_data is (%d)", sizeof( ctx->gif_data ) );
-
-
-  // Add new link to chain
   out_chain.buf = buffer;
   out_chain.next = NULL;
 
-  // Set response headers
-  request->headers_out.content_length_n = ctx->gif_size;
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "the sizeof gif_data is (%d)", ctx->gif_size );
 
-  if ( request->headers_out.content_length ) {
-    request->headers_out.content_length->hash = 0;
-  }
+  // Set response headers
+
+  request->headers_out.content_length_n = ctx->gif_size;
+  if ( request->headers_out.content_length ) request->headers_out.content_length->hash = 0;
   request->headers_out.content_length = NULL;
 
-  // Headers
-  //content_type = ngx_string("image/gif"); 
   request->headers_out.content_type_len = content_type.len;
   request->headers_out.content_type = content_type;
   request->headers_out.content_type_lowcase = NULL;
-
   request->headers_out.status = NGX_HTTP_OK;
+
+  result = ngx_http_next_header_filter( request );
+  if ( result == NGX_ERROR || request->header_only ) return NGX_ERROR;
 
   return ngx_http_next_body_filter( request, &out_chain );
 }
@@ -376,12 +374,15 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
 
     case GIF_MAGICK_ENABLED:
 
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to read image.");
+
         ctx->status = GIF_MAGICK_READ;
 
     case GIF_MAGICK_READ:
 
       //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to read image.");
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "reading image.");
 
       result = ngx_http_gif_magick_read_image( request, in_chain );
       if ( result == NGX_ERROR ) {
@@ -409,8 +410,16 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
         ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to send image file.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
+      ctx->status = GIF_MAGICK_DONE;
 
       return ngx_http_gif_magick_send_image( request, in_chain );
+
+    case GIF_MAGICK_DONE:
+
+      //FIXME
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIT MAGICK DONE.");
+
+      return ngx_http_next_body_filter( request, in_chain );
    
     default:
 
