@@ -16,6 +16,8 @@
 #define GIF_MAGICK_SEND         4
 #define GIF_MAGICK_DONE         5
 
+#define GIF_MAGICK_DIMENSION_UNSET        -1
+
 #define GIF_MAGICK_DEFAULT_BUFFER_SIZE    (size_t)20971520  /* 20 MB TODO:configurable */
 
 typedef struct {
@@ -136,8 +138,13 @@ ngx_http_gif_magick_merge_loc_conf( ngx_conf_t *cf, void *parent, void *child )
 
   ngx_conf_merge_value( conf->enabled, prev->enabled, GIF_MAGICK_DISABLED );
   ngx_conf_merge_size_value( conf->buffer_size, prev->buffer_size, GIF_MAGICK_DEFAULT_BUFFER_SIZE );
-  ngx_conf_merge_size_value( conf->width, prev->width, 400 );
-  ngx_conf_merge_size_value( conf->height, prev->height, 1024 );
+  ngx_conf_merge_size_value( conf->width, prev->width, GIF_MAGICK_DIMENSION_UNSET);
+  ngx_conf_merge_size_value( conf->height, prev->height, GIF_MAGICK_DIMENSION_UNSET );
+
+  if ( conf->width == GIF_MAGICK_DIMENSION_UNSET && conf->height == GIF_MAGICK_DIMENSION_UNSET ) {
+    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "gif_magick configuration error, must set either width or height.");
+    return NGX_CONF_ERROR;
+  }
 
   return NGX_CONF_OK;
 }
@@ -417,7 +424,7 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
     case GIF_MAGICK_DONE:
 
       //FIXME
-      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIT MAGICK DONE.");
+      ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "GIF MAGICK DONE.");
 
       return ngx_http_next_body_filter( request, in_chain );
    
