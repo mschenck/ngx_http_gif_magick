@@ -396,7 +396,7 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
 
       result = ngx_http_gif_magick_resize_image( request, in_chain );
       if ( result == NGX_ERROR ) {
-        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to read image file.");
+        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to resize image file.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
       ctx->status = GIF_MAGICK_SEND;
@@ -405,6 +405,10 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
 
       //FIXME
       ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "starting to send image.");
+      if ( result == NGX_ERROR ) {
+        ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Failed to send image file.");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+      }
 
       return ngx_http_gif_magick_send_image( request, in_chain );
    
