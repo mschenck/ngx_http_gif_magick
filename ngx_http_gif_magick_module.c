@@ -1,6 +1,7 @@
 /*
- * ngx_http_gif_magick
- *
+ ngx_http_gif_magick - Dynamic (animated) GIF resizing with nginx
+
+ Michael Schenck [ michael@tumblr.com, mschenck@gmail.com ]
  */
 
 #include <ngx_config.h>
