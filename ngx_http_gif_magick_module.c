@@ -193,6 +193,7 @@ ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_c
   ngx_http_gif_magick_ctx_t       *ctx;
   MagickWand                      *magick_wand;
   MagickSizeType                  magick_length;
+  ngx_int_t                       target_width, target_height;
 
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
   if ( ctx == NULL ) {
@@ -206,17 +207,39 @@ ngx_http_gif_magick_resize_image( ngx_http_request_t *request, ngx_chain_t *in_c
   magick_wand = NewMagickWand();
 
   // Load original image into Wand
-  if ( MagickReadImageBlob( magick_wand, (void*)ctx->gif_data, ctx->buffer_size) == MagickFalse ) {
-    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "Magick fed an invalid image blob");
+  if ( MagickReadImageBlob( magick_wand, (void*)ctx->gif_data, ctx->buffer_size) == MagickFalse ) return NGX_ERROR;
+
+  // Determine target dimensions
+  if ( ( ctx->width  != NGX_CONF_UNSET ) &&
+       ( ctx->height != NGX_CONF_UNSET ) ) {
+
+    target_width    = ctx->width;
+    target_height   = ctx->height;
+
+  } else if ( ctx->width != NGX_CONF_UNSET ) {
+
+    target_width    = ctx->width;
+    target_height   = (ngx_int_t)( (float)ctx->width * (float)MagickGetImageHeight( magick_wand ) / (float)MagickGetImageWidth( magick_wand ) );
+
+  } else if ( ctx->height != NGX_CONF_UNSET ) {
+
+    target_height   = ctx->height;
+    target_width    = (ngx_int_t)( (float)ctx->height * (float)MagickGetImageWidth( magick_wand ) / (float)MagickGetImageHeight( magick_wand ) );
+
+  } else {
+
+    ngx_log_error( NGX_LOG_ERR, request->connection->log, 0, "gif_magick fed an invalid dimensions: NEITHER set!");
     return NGX_ERROR;
+
   }
+  ngx_log_debug2( NGX_LOG_DEBUG_HTTP, request->connection->log, 0, "gif_magick target dimensions (%uz x %uz).", target_width, target_height );
 
   // Resize all frames
   MagickCoalesceImages( magick_wand );
 
   MagickSetFirstIterator( magick_wand );
   do {
-    MagickAdaptiveResizeImage( magick_wand, ctx->width, ctx->height );
+    MagickAdaptiveResizeImage( magick_wand, target_width, target_height );
   } while ( MagickNextImage( magick_wand ) != MagickFalse );
 
   MagickStripImage( magick_wand );
@@ -246,6 +269,8 @@ ngx_http_gif_magick_read_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   ngx_buf_t                       *buffer;
   ngx_chain_t                     *chain_link;
   size_t                          chunk_size, remaining;
+
+  request->connection->buffered &= ~0x08;
 
   // Retrieve (or allocate if missing) context
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
@@ -297,7 +322,7 @@ ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   ngx_buf_t                   *buffer;
   ngx_chain_t                 out_chain;
   ngx_int_t                   result;
-  ngx_str_t                   content_type = ngx_string("image/gif"); 
+  ngx_str_t                   content_type    = ngx_string( "image/gif" ); 
 
   ctx = ngx_http_get_module_ctx( request, ngx_http_gif_magick_module );
   if ( ctx == NULL ) ngx_http_next_body_filter( request, in_chain );
@@ -321,10 +346,10 @@ ngx_http_gif_magick_send_image( ngx_http_request_t *request, ngx_chain_t *in_cha
   if ( request->headers_out.content_length ) request->headers_out.content_length->hash = 0;
   request->headers_out.content_length = NULL;
 
-  request->headers_out.content_type_len = content_type.len;
-  request->headers_out.content_type = content_type;
+  request->headers_out.content_type_len     = content_type.len;
+  request->headers_out.content_type         = content_type;
   request->headers_out.content_type_lowcase = NULL;
-  request->headers_out.status = NGX_HTTP_OK;
+  request->headers_out.status               = NGX_HTTP_OK;
 
   result = ngx_http_next_header_filter( request );
   if ( result == NGX_ERROR || request->header_only ) return NGX_ERROR;
@@ -368,7 +393,12 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
 
-      if ( result == NGX_ERROR ) ctx->status = GIF_MAGICK_RESIZE;
+      if ( result == NGX_AGAIN ) return NGX_OK;
+
+      ctx->status = GIF_MAGICK_RESIZE;
+
+      //return ngx_http_next_body_filter( request, in_chain );
+
 
     case GIF_MAGICK_RESIZE:
 
@@ -379,6 +409,8 @@ ngx_http_gif_magick_body_filter  ( ngx_http_request_t *request, ngx_chain_t *in_
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
       ctx->status = GIF_MAGICK_SEND;
+
+      //return ngx_http_next_body_filter( request, in_chain );
 
     case GIF_MAGICK_SEND:
 
