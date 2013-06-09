@@ -1,6 +1,10 @@
 ngx_http_gif_magick
 ----
 
+nginx http filter module for dynamically resizing gifs with ImageMagick
+
+*NOTE*: This is a side project and not yet tested against all of the nuenced forms GIF files can take.
+
 # Configuration settings
 
 ## Enabling
