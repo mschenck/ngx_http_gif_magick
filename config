@@ -2,9 +2,8 @@ ngx_addon_name=ngx_http_gif_magick_module
 HTTP_AUX_FILTER_MODULES="$HTTP_AUX_FILTER_MODULES ngx_http_gif_magick_module"
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_gif_magick_module.c"
 
-MAGICK_DIR="/usr/local/ImageMagick"
-MAGICK_LIBDIR="${MAGICK_DIR}/lib"
-MAGICK_INCLUDE="${MAGICK_DIR}/include/ImageMagick-6"
+MAGICK_LIBDIR="/usr/lib"
+MAGICK_INCLUDE="/usr/include/ImageMagick-6"
 
 PKG_CONFIG_PATH="${MAGICK_LIBDIR}/pkgconfig"
 
