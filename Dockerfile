@@ -34,6 +34,7 @@ RUN cd /tmp/nginx-release-$NGINX_VERSION ; \
       make && \
       make install 
 
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY docker_assets/nginx.conf /etc/nginx/nginx.conf
+COPY docker_assets/index.html /var/www/html/html/
 
 ENTRYPOINT ["/usr/sbin/nginx"]
